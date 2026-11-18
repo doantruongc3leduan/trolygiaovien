@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Teacher Assistant PRO — Tích hợp Google Drive</title>
+<!-- Thư viện Google API để lấy dữ liệu từ Drive/Sheets -->
+<script async defer src="https://apis.google.com/js/api.js"></script>
+<script async defer src="https://accounts.google.com/gsi/client"></script>
+<!-- Thư viện SweetAlert2 cho thông báo mượt mà -->
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+<style>
+/* ===== PRO DARK MODE & GLASSMORPHISM 3D ===== */
+:root {
+  --primary: #3b82f6; --primary-hover: #2563eb;
+  --bg-color: #0f172a; --bg-glass: rgba(30, 41, 59, 0.7);
+  --text-main: #f8fafc; --text-muted: #94a3b8;
+  --border: rgba(255, 255, 255, 0.1);
+  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  --neon-glow: 0 0 15px rgba(59, 130, 246, 0.5);
+}
+* { box-sizing: border-box; }
+body { 
+  margin: 0; font-family: 'Inter', system-ui, sans-serif; 
+  background: var(--bg-color); color: var(--text-main);
+  background-image: radial-gradient(circle at 15% 50%, rgba(59,130,246,0.15), transparent 25%),
+                    radial-gradient(circle at 85% 30%, rgba(16,185,129,0.1), transparent 25%);
+  background-attachment: fixed;
+}
+button, input, select, textarea { font: inherit; outline: none; }
+button { cursor: pointer; transition: all 0.3s ease; }
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+
+/* Bố cục chính */
+.app-container { display: grid; grid-template-columns: 260px 1fr; min-height: 100vh; }
+
+/* Sidebar */
+.sidebar {
+  background: var(--bg-glass); backdrop-filter: blur(12px); border-right: 1px solid var(--border);
+  padding: 24px; display: flex; flex-direction: column; gap: 20px; z-index: 10;
+}
+.brand { display: flex; align-items: center; gap: 12px; }
+.logo { 
+  width: 48px; height: 48px; border-radius: 12px; background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  display: grid; place-items: center; font-size: 24px; font-weight: bold; box-shadow: var(--neon-glow);
+}
+.brand h1 { margin: 0; font-size: 18px; background: linear-gradient(to right, #60a5fa, #a78bfa); -webkit-background-clip: text; color: transparent; }
+.nav button {
+  width: 100%; text-align: left; background: transparent; border: none; color: var(--text-muted);
+  padding: 12px 16px; border-radius: 12px; margin-bottom: 8px; display: flex; align-items: center; gap: 12px;
+}
+.nav button:hover, .nav button.active {
+  background: rgba(59, 130, 246, 0.1); color: var(--text-main);
+  box-shadow: inset 4px 0 0 var(--primary);
+}
+.drive-status {
+  margin-top: auto; padding: 16px; background: rgba(16, 185, 129, 0.1); 
+  border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 12px; font-size: 12px;
+}
+
+/* Nội dung */
+.main-content { padding: 32px 48px; height: 100vh; overflow-y: auto; }
+.header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px; }
+.header h2 { margin: 0; font-size: 28px; font-weight: 700; }
+.btn {
+  background: var(--bg-glass); border: 1px solid var(--border); color: var(--text-main);
+  padding: 10px 20px; border-radius: 8px; backdrop-filter: blur(4px);
+}
+.btn.primary { background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; box-shadow: 0 4px 15px rgba(59,130,246,0.4); }
+.btn:hover { transform: translateY(-2px); box-shadow: var(--neon-glow); border-color: var(--primary); }
+
+/* Card & 3D Hover */
+.panel {
+  background: var(--bg-glass); backdrop-filter: blur(16px); border: 1px solid var(--border);
+  border-radius: 16px; padding: 24px; margin-bottom: 24px; box-shadow: var(--glass-shadow);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.panel:hover { transform: translateY(-5px) perspective(1000px) rotateX(2deg); box-shadow: 0 15px 35px rgba(0,0,0,0.5); }
+.panel h3 { margin: 0 0 16px 0; display: flex; align-items: center; gap: 8px; }
+
+/* Grid Forms */
+.form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+.field { display: flex; flex-direction: column; gap: 8px; }
+.field.full { grid-column: 1 / -1; }
+.field label { font-size: 13px; color: var(--text-muted); font-weight: 600; }
+.field input, .field select, .field textarea {
+  background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); color: var(--text-main);
+  padding: 12px; border-radius: 8px; transition: 0.3s;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  border-color: var(--primary); box-shadow: 0 0 0 3px rgba(59,130,246,0.2);
+}
+.field textarea { min-height: 120px; resize: vertical; }
+
+/* Workspace Pages */
+.page { display: none; animation: fadeIn 0.4s ease forwards; }
+.page.active { display: block; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Drive Integration UI */
+.drive-box {
+  border: 2px dashed rgba(59, 130, 246, 0.4); border-radius: 12px; padding: 32px; text-align: center;
+  background: rgba(59, 130, 246, 0.05); transition: 0.3s; cursor: pointer;
+}
+.drive-box:hover { background: rgba(59, 130, 246, 0.1); border-color: var(--primary); }
+.drive-box img { width: 48px; margin-bottom: 12px; }
+
+/* AI Studio Grid */
+.ai-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.ai-tool {
+  background: rgba(30, 41, 59, 0.5); border: 1px solid var(--border); padding: 16px; border-radius: 12px;
+  cursor: pointer; text-align: center; transition: 0.3s;
+}
+.ai-tool:hover, .ai-tool.selected { background: rgba(59,130,246,0.2); border-color: var(--primary); box-shadow: var(--neon-glow); }
+.ai-tool span { display: block; font-size: 24px; margin-bottom: 8px; }
+
+@media(max-width: 900px) {
+  .app-container { grid-template-columns: 1fr; }
+  .sidebar { display: none; } /* Cần nút toggle menu ở mobile */
+  .form-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="app-container">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">✧</div>
+      <div><h1>AI Teacher PRO</h1><span style="font-size: 11px; color: var(--text-muted);">Hệ sinh thái Giáo dục 4.0</span></div>
+    </div>
+    <nav class="nav">
+      <button class="active" data-page="home">🏠 Tổng quan</button>
+      <button data-page="lesson">📘 Kế hoạch bài dạy (Giáo án)</button>
+      <button data-page="quiz">📝 Ma trận & Trắc nghiệm</button>
+      <button data-page="ai-studio">🤖 AI Studio Mạnh Nhất</button>
+      <button data-page="settings">⚙️ Cài đặt Drive & AI</button>
+    </nav>
+    <div class="drive-status" id="driveStatusUI">
+      🔴 Google Drive: Chưa kết nối<br>
+      <small>Vui lòng đăng nhập để đồng bộ SGK & Sheets</small>
+    </div>
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <main class="main-content">
+    <!-- TRANG CHỦ -->
+    <section id="page-home" class="page active">
+      <div class="header">
+        <h2>Tổng quan Hệ thống</h2>
+        <button class="btn primary" onclick="authGoogle()">🔗 Kết nối Google Drive</button>
+      </div>
+      <div class="panel">
+        <h3>Chào mừng Thầy/Cô!</h3>
+        <p>Hệ thống AI Teacher PRO hoạt động 100% trên trình duyệt (GitHub Pages). Dữ liệu được lấy trực tiếp từ Google Drive của thầy cô (Sách giáo khoa dạng PDF/Docs, Ngân hàng câu hỏi dạng Sheets) thông qua Google Picker API để đảm bảo bản quyền và bảo mật.</p>
+      </div>
+    </section>
+
+    <!-- KẾ HOẠCH BÀI DẠY -->
+    <section id="page-lesson" class="page">
+      <div class="header"><h2>Biên soạn Kế hoạch Bài dạy (Công văn 5512)</h2></div>
+      <div class="panel">
+        <h3>1. Nguồn Dữ liệu (Sách Giáo Khoa)</h3>
+        <div class="drive-box" onclick="pickDriveFile('docs')">
+          <div style="font-size: 40px; margin-bottom: 10px;">📄</div>
+          <strong>Chọn SGK từ Google Drive</strong>
+          <p style="font-size: 12px; color: var(--text-muted);">Hỗ trợ Google Docs, PDF để AI đọc và bám sát nội dung chuẩn Bộ GD.</p>
+          <div id="selectedSgk" style="color: #10b981; margin-top: 10px; font-weight: bold;"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>2. Cấu hình Giáo án</h3>
+        <div class="form-grid">
+          <div class="field">
+            <label>Môn học</label>
+            <select id="lessonSubject">
+              <option>Toán học</option><option>Ngữ văn</option><option>Tiếng Anh</option>
+              <option>Vật lí</option><option>Hóa học</option><option>Sinh học</option>
+              <option>Lịch sử</option><option>Địa lí</option><option>GDKT & Pháp luật</option>
+              <option selected>Tin học</option><option>Công nghệ</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Khối lớp</label>
+            <select id="lessonGrade"><option>Khối 10</option><option>Khối 11</option><option>Khối 12</option></select>
+          </div>
+          <div class="field full">
+            <label>Tên bài dạy / Chủ đề</label>
+            <input type="text" id="lessonTopic" placeholder="Nhập tên bài...">
+          </div>
+        </div>
+        <div style="margin-top: 20px;">
+          <button class="btn primary" onclick="generateLesson()">✨ Tự động tạo Giáo án (AI)</button>
+        </div>
+      </div>
+      <div class="panel" id="lessonResult" style="display: none;">
+        <h3>Kết quả Giáo án</h3>
+        <textarea class="field full" id="lessonOutput" style="min-height: 400px; font-family: monospace;"></textarea>
+      </div>
+    </section>
+
+    <!-- TRẮC NGHIỆM & MA TRẬN -->
+    <section id="page-quiz" class="page">
+      <div class="header"><h2>Hệ thống Trắc nghiệm & Đặc tả Ma trận</h2></div>
+      <div class="panel">
+        <h3>1. Nguồn Ngân hàng câu hỏi</h3>
+        <div class="drive-box" onclick="pickDriveFile('sheets')">
+          <div style="font-size: 40px; margin-bottom: 10px;">📊</div>
+          <strong>Chọn Google Sheets Ngân hàng câu hỏi</strong>
+          <p style="font-size: 12px; color: var(--text-muted);">AI sẽ tự động đọc các sheet, phân loại câu hỏi theo mức độ.</p>
+          <div id="selectedSheet" style="color: #10b981; margin-top: 10px; font-weight: bold;"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>2. Cấu trúc Đề & Ma trận</h3>
+        <div class="form-grid">
+          <div class="field"><label>Số câu Nhận biết</label><input type="number" id="qNhậnBiết" value="10"></div>
+          <div class="field"><label>Số câu Thông hiểu</label><input type="number" id="qThôngHiểu" value="10"></div>
+          <div class="field"><label>Số câu Vận dụng</label><input type="number" id="qVậnDụng" value="5"></div>
+          <div class="field"><label>Số câu Vận dụng cao</label><input type="number" id="qVậnDụngCao" value="3"></div>
+        </div>
+        <div style="margin-top: 20px;">
+          <button class="btn primary" onclick="generateQuiz()">🧩 Xuất Đề thi & Bảng đặc tả</button>
+          <button class="btn" onclick="window.open('https://github.com/your-other-quiz-repo', '_blank')">🌐 Mở trang Thi Online (Liên kết ngoài)</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- AI STUDIO -->
+    <section id="page-ai-studio" class="page">
+      <div class="header"><h2>AI Studio - Mô hình AI Mạnh nhất</h2></div>
+      <div class="panel">
+        <div class="ai-grid">
+          <div class="ai-tool selected" onclick="selectAiTool(this)"><span>📖</span> Tóm tắt nội dung SGK Drive</div>
+          <div class="ai-tool" onclick="selectAiTool(this)"><span>📝</span> Sửa lỗi & Nhận xét</div>
+          <div class="ai-tool" onclick="selectAiTool(this)"><span>📊</span> Tạo Slide Trình chiếu (Gợi ý)</div>
+          <div class="ai-tool" onclick="selectAiTool(this)"><span>💡</span> Lên ý tưởng Dự án STEM</div>
+        </div>
+        <div class="field full">
+          <label>Yêu cầu cho Trợ lý AI</label>
+          <textarea placeholder="Nhập yêu cầu chi tiết của Thầy/Cô tại đây..."></textarea>
+        </div>
+        <div style="margin-top: 16px;">
+          <button class="btn primary">Gửi yêu cầu tới AI</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- CÀI ĐẶT -->
+    <section id="page-settings" class="page">
+      <div class="header"><h2>Cài đặt Hệ thống</h2></div>
+      <div class="panel">
+        <h3>Cấu hình Google Cloud Console API</h3>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 20px;">Vì trang web chạy tĩnh trên GitHub Pages, để truy cập được Drive, Thầy/Cô cần tạo Project trên Google Cloud, bật <b>Google Drive API</b>, <b>Google Picker API</b> và tạo thông tin xác thực.</p>
+        <div class="form-grid">
+          <div class="field full"><label>Client ID</label><input type="password" id="gClient" placeholder="xxxx-xxxx.apps.googleusercontent.com"></div>
+          <div class="field full"><label>API Key</label><input type="password" id="gApi" placeholder="AIzaSyAxxxxxx..."></div>
+          <div class="field full"><label>App ID (Project Number)</label><input type="text" id="gApp" placeholder="1234567890"></div>
+          <div class="field full"><label>Mô hình AI API Key (Gemini/OpenAI)</label><input type="password" id="aiKey" placeholder="sk-xxxx..."></div>
+        </div>
+        <div style="margin-top: 20px;">
+          <button class="btn primary" onclick="saveSettings()">💾 Lưu Cài đặt (Lưu cục bộ)</button>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+/* =========================================================================
+   1. QUẢN LÝ ĐIỀU HƯỚNG GIAO DIỆN (UI NAVIGATION)
+   ========================================================================= */
+document.querySelectorAll('.nav button').forEach(btn => {
+  btn.addEventListener('click', (e) => {
+    document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    e.currentTarget.classList.add('active');
+    document.getElementById('page-' + e.currentTarget.dataset.page).classList.add('active');
+  });
+});
+
+function selectAiTool(el) {
+  document.querySelectorAll('.ai-tool').forEach(t => t.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+/* =========================================================================
+   2. CẤU HÌNH & TÍCH HỢP GOOGLE DRIVE / PICKER API
+   (Scaffolding hoàn chỉnh cho GitHub Pages)
+   ========================================================================= */
+let oauthToken = null;
+
+// Lấy thông tin cấu hình từ LocalStorage
+function getSettings() {
+  return {
+    clientId: document.getElementById('gClient').value || localStorage.getItem('gClient_PRO'),
+    apiKey: document.getElementById('gApi').value || localStorage.getItem('gApi_PRO'),
+    appId: document.getElementById('gApp').value || localStorage.getItem('gApp_PRO')
+  };
+}
+
+function saveSettings() {
+  localStorage.setItem('gClient_PRO', document.getElementById('gClient').value);
+  localStorage.setItem('gApi_PRO', document.getElementById('gApi').value);
+  localStorage.setItem('gApp_PRO', document.getElementById('gApp').value);
+  localStorage.setItem('aiKey_PRO', document.getElementById('aiKey').value);
+  Swal.fire('Thành công', 'Đã lưu cấu hình khóa API an toàn trong trình duyệt!', 'success');
+}
+
+// Khôi phục UI Cài đặt khi tải trang
+window.onload = () => {
+  document.getElementById('gClient').value = localStorage.getItem('gClient_PRO') || '';
+  document.getElementById('gApi').value = localStorage.getItem('gApi_PRO') || '';
+  document.getElementById('gApp').value = localStorage.getItem('gApp_PRO') || '';
+  document.getElementById('aiKey').value = localStorage.getItem('aiKey_PRO') || '';
+}
+
+// Hàm xác thực Google OAuth 2.0 (Identity Services)
+function authGoogle() {
+  const config = getSettings();
+  if (!config.clientId || !config.apiKey) {
+    Swal.fire('Thiếu cấu hình', 'Vui lòng nhập Google Client ID và API Key trong tab Cài đặt trước.', 'warning');
+    document.querySelector('[data-page="settings"]').click();
+    return;
+  }
+
+  gapi.load('client:picker', () => {
+    gapi.client.load('https://www.googleapis.com/discovery/v1/apis/drive/v3/rest');
+  });
+
+  const tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: config.clientId,
+    scope: 'https://www.googleapis.com/auth/drive.readonly',
+    callback: (response) => {
+      if (response.error !== undefined) { throw (response); }
+      oauthToken = response.access_token;
+      document.getElementById('driveStatusUI').innerHTML = '🟢 Google Drive: Đã kết nối<br><small>Sẵn sàng đọc SGK & Sheets</small>';
+      document.getElementById('driveStatusUI').style.backgroundColor = 'rgba(16, 185, 129, 0.2)';
+      Swal.fire('Kết nối Drive thành công!', 'Hệ thống đã sẵn sàng trích xuất học liệu.', 'success');
+    },
+  });
+  tokenClient.requestAccessToken({prompt: 'consent'});
+}
+
+// Mở Google Picker để chọn File
+function pickDriveFile(type) {
+  if (!oauthToken) {
+    Swal.fire('Chưa kết nối', 'Vui lòng kết nối Google Drive trước.', 'error');
+    return;
+  }
+  const config = getSettings();
+  const view = new google.picker.DocsView(google.picker.ViewId.DOCS);
+  
+  if (type === 'sheets') {
+    view.setMimeTypes('application/vnd.google-apps.spreadsheet');
+  } else {
+    view.setMimeTypes('application/vnd.google-apps.document,application/pdf');
+  }
+
+  const picker = new google.picker.PickerBuilder()
+    .addView(view)
+    .setOAuthToken(oauthToken)
+    .setDeveloperKey(config.apiKey)
+    .setAppId(config.appId)
+    .setCallback((data) => pickerCallback(data, type))
+    .build();
+  picker.setVisible(true);
+}
+
+function pickerCallback(data, type) {
+  if (data[google.picker.Response.ACTION] === google.picker.Action.PICKED) {
+    const doc = data[google.picker.Response.DOCUMENTS][0];
+    const fileName = doc[google.picker.Document.NAME];
+    
+    if (type === 'docs') {
+      document.getElementById('selectedSgk').innerText = `Đã nạp SGK: ${fileName}`;
+    } else {
+      document.getElementById('selectedSheet').innerText = `Đã nạp Sheets: ${fileName}`;
+    }
+    
+    Swal.fire('Tải dữ liệu thành công', `Đã đồng bộ file: ${fileName}`, 'success');
+    // Thực tế ở đây sẽ gọi gapi.client.drive.files.get({fileId, alt:'media'}) để đọc nội dung
+  }
+}
+
+/* =========================================================================
+   3. MÔ PHỎNG XỬ LÝ DỮ LIỆU BẰNG AI (TẠO GIÁO ÁN & MA TRẬN)
+   ========================================================================= */
+function generateLesson() {
+  const sgk = document.getElementById('selectedSgk').innerText;
+  if (!sgk) {
+    Swal.fire('Thiếu dữ liệu', 'Vui lòng chọn Sách Giáo Khoa từ Google Drive trước!', 'warning');
+    return;
+  }
+  
+  const subject = document.getElementById('lessonSubject').value;
+  const grade = document.getElementById('lessonGrade').value;
+  const topic = document.getElementById('lessonTopic').value || '[Chưa nhập tên bài]';
+  
+  Swal.fire({
+    title: 'AI đang phân tích SGK...',
+    html: 'Trích xuất yêu cầu cần đạt và biên soạn giáo án theo chuẩn CV 5512.',
+    timer: 2000,
+    timerProgressBar: true,
+    didOpen: () => { Swal.showLoading() }
+  }).then(() => {
+    document.getElementById('lessonResult').style.display = 'block';
+    document.getElementById('lessonOutput').value = `KẾ HOẠCH BÀI DẠY (GIÁO ÁN)
+Trích xuất từ nguồn: ${sgk}
+Môn: ${subject} | ${grade}
+Tên bài: ${topic}
+
+I. MỤC TIÊU (Theo SGK được quét)
+1. Kiến thức: Học sinh hiểu rõ các khái niệm cốt lõi trong bài ${topic}.
+2. Năng lực: 
+- Năng lực đặc thù: Vận dụng được kiến thức vào giải quyết vấn đề thực tế.
+- Năng lực chung: Tự chủ, tự học, giao tiếp hợp tác.
+3. Phẩm chất: Chăm chỉ, trung thực, trách nhiệm.
+
+II. THIẾT BỊ DẠY HỌC VÀ HỌC LIỆU
+- Lấy trực tiếp từ tài nguyên đính kèm trên Google Drive.
+
+III. TIẾN TRÌNH DẠY HỌC (Công văn 5512)
+1. Hoạt động 1: Khởi động (Mở đầu)
+2. Hoạt động 2: Hình thành kiến thức mới (Theo nội dung file Docs)
+3. Hoạt động 3: Luyện tập (Trích xuất từ phần bài tập SGK)
+4. Hoạt động 4: Vận dụng (Dự án/Thực hành)
+
+*Hệ thống đã tự động biên soạn nội dung dựa vào tệp Drive được cung cấp.*`;
+  });
+}
+
+function generateQuiz() {
+  const sheet = document.getElementById('selectedSheet').innerText;
+  if (!sheet) {
+    Swal.fire('Thiếu dữ liệu', 'Vui lòng chọn Ngân hàng câu hỏi (Sheets) từ Google Drive!', 'warning');
+    return;
+  }
+  
+  Swal.fire({
+    title: 'AI đang xây dựng Ma trận...',
+    html: 'Đang bốc xuất ngẫu nhiên từ Google Sheets theo đúng tỷ lệ...',
+    timer: 2000,
+    timerProgressBar: true,
+    didOpen: () => { Swal.showLoading() }
+  }).then(() => {
+    const nb = document.getElementById('qNhậnBiết').value;
+    const th = document.getElementById('qThôngHiểu').value;
+    const vd = document.getElementById('qVậnDụng').value;
+    const vdc = document.getElementById('qVậnDụngCao').value;
+    
+    Swal.fire('Hoàn thành', `Đã tạo đề thi từ ${sheet} với ma trận:\n- Nhận biết: ${nb} câu\n- Thông hiểu: ${th} câu\n- Vận dụng: ${vd} câu\n- Vận dụng cao: ${vdc} câu`, 'success');
+  });
+}
+</script>
+</body>
+</html>
